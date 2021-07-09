@@ -5,9 +5,9 @@ import requests
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 import colorama
+import time
 currSession = requests.Session()
 currSession.headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.106 Safari/537.36"
-
 # init the colorama module
 colorama.init()
 
@@ -99,7 +99,6 @@ def get_form_details(form):
     details["inputs"] = inputs
 
     if loginCheck[0] == True and loginCheck[1] == True and loginCheck[2] == True:
-        print(loginCheck)
         return details, True
     else:
         return details, False
@@ -130,10 +129,9 @@ def get_all_website_links(url):
     urls = set()
     # domain name of the URL without the protocol
     domain_name = urlparse(url).netloc
-    soup = BeautifulSoup(currSession.get(url).content, "html.parser")
+    soup = BeautifulSoup(currSession.get(url).content, "html.parser", from_encoding="iso-8859-1")
     for a_tag in soup.findAll("a"):
         href = a_tag.attrs.get("href")
-        
         if href == "" or href is None or (href.lower().find('logout') != -1) or (href.lower().find('exit') != -1) or (href.lower().find('signout') != -1):
             # href empty tag
             continue
@@ -177,6 +175,66 @@ def crawl(url, max_urls=30):
         crawl(link, max_urls=max_urls)
 
 
+def submit_form(form_details, url, value):
+    """
+    Submits a form given in `form_details`
+    Params:
+        form_details (list): a dictionary that contain form information
+        url (str): the original URL that contain that form
+        value (str): this will be replaced to all text and search inputs
+    Returns the HTTP Response after form submission
+    """
+    # construct the full URL (if the url provided in action is relative)
+    target_url = urljoin(url, form_details["action"])
+    # get the inputs
+    inputs = form_details["inputs"]
+    data = {}
+    for input in inputs:
+        # replace all text and search values with `value`
+        if input["type"] == "text" or input["type"] == "search":
+            input["value"] = value
+        input_name = input.get("name")
+        input_value = input.get("value")
+        if input_name and input_value:
+            # if input name and value are not None,
+            # then add them to the data of form submission
+            data[input_name] = input_value
+
+    if form_details["method"] == "post":
+        return currSession.post(target_url, data=data)
+    else:
+        # GET request
+        return currSession.get(target_url, params=data)
+
+
+def scan_xss(url):
+    """
+    Given a `url`, it prints all XSS vulnerable forms and 
+    returns True if any is vulnerable, False otherwise
+    """
+    # get all the forms from the URL
+    forms = get_all_forms(url)
+    print(f"[+] Detected {len(forms)} forms on {url}.")
+    js_script = "<Script>alert('hi')</scripT>"
+    # returning value
+    is_vulnerable = False
+    # iterate over all forms
+    for form in forms:
+        form_details, x = get_form_details(form)
+        content = submit_form(form_details, url, js_script).content.decode()
+        #print(content)
+        time.sleep(1)
+        if js_script in content:
+            print(f"[+] XSS Detected on {url}")
+            print(f"[*] Form details:")
+            pprint(form_details)
+            is_vulnerable = True
+            # won't break because we want to print other available vulnerable forms
+    return is_vulnerable
+
+
+
+
 if __name__ == "__main__":
     url = input("Enter your URL: ")
     flag = False
@@ -203,10 +261,14 @@ if __name__ == "__main__":
     print("[+] Total Internal links:", len(internal_urls))
     print("[+] Total External links:", len(external_urls))
     print("[+] Total URLs:", len(external_urls) + len(internal_urls))
-    print("[+] Total crawled URLs:", 100)
+    print("[+] Total crawled URLs:", 1000)
 
     for i in internal_urls:
+        #if i == "http://127.0.0.1:8009/vulnerabilities/xss_r/":
         print(i)
+    print(scan_xss("http://127.0.0.1:8009/vulnerabilities/xss_r"))
+
+
 
 
 """print("="*50, f"form #{i}", "="*50)
