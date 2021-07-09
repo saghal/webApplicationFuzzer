@@ -78,10 +78,48 @@ if __name__ == "__main__":
     # iteratte over forms
     for i, form in enumerate(forms, start=1):
         form_details, loginStatus = get_form_details(form)
-        if loginStatus == True:
-            print("login form detected")
-        else:
-            print("not detected")
         print("="*50, f"form #{i}", "="*50)
         pprint(form_details)
 
+        if loginStatus == True:
+            print("="*50, "Login form detected", "="*50)
+            username = input("Enter Username and password\nUsername: ")
+            password = input("password: ")
+        else:
+            print("not detected")
+
+        target_url = urljoin(url, form_details["action"])
+        # get the inputs
+        inputs = form_details["inputs"]
+        data = {}
+        for input in inputs:
+            # replace all text and search values with `value`
+            if input["type"] == "text":
+                input["value"] = username
+            if input["type"] == "password":
+                input["value"] = password
+            
+            input_value = input.get("value")
+            input_name = input.get("name")
+            if input_name and input_value:
+                # if input name and value are not None,
+                # then add them to the data of form submission
+                data[input_name] = input_value
+        
+        print(data,target_url)
+        if form_details["method"] == "post":
+            result = currSession.post(target_url, data=data)
+        else:
+            result = currSession.get(target_url, params=data)
+
+        print("this place: ", result.url)
+
+
+
+
+
+
+
+"""print("="*50, f"form #{i}", "="*50)
+pprint(form_details)
+"""
