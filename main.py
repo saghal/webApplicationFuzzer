@@ -302,6 +302,51 @@ def scan_xss(url, level):
     return is_vulnerable
 
 
+def scan_HTMLI(url):
+    forms = get_all_forms(url)
+    print(f"[+] Detected {len(forms)} forms on {url}")
+    detectForm = [False]*len(forms)
+    file1 = open('html-payload.txt', 'r')
+    Lines = file1.readlines()
+    file1.close()
+
+    is_vulnerable = False
+    for line in Lines:
+        temp = 0
+        for checkForm in detectForm:
+            if checkForm == True:
+                temp = temp + 1
+
+        if temp == len(forms):
+            break
+        # iterate over all forms
+        count = 0
+        for form in forms:
+            if detectForm[count] == True:
+                continue
+            form_details, x = get_form_details(form)
+            content = submit_form(form_details, url, line).content.decode()
+            if line in content:
+                detectForm[count] = True
+                print(f"[+] XSS Detected on {url}")
+                print(f"[*] Form details:")
+                pprint(form_details)
+                f = open("report.txt", "a")
+                f.write("#"*100)
+                f.write("\n** HTML injection **\n")
+                f.write("\npath: ")
+                f.write(url)
+                f.write("\n")
+                f.write(str(form_details))
+                f.write("#"*100)
+
+                f.close()
+
+                is_vulnerable = True
+            count = count + 1
+    return is_vulnerable
+
+
 def is_vulnerable(response):
     """A simple boolean function that determines whether a page 
     is SQL Injection vulnerable from its `response`"""
@@ -413,9 +458,9 @@ if __name__ == "__main__":
         elif options == 2:
             for link in internal_urls:
                 scan_sql_injection(link)
+        elif options == 3:
+            for link in internal_urls:
+                scan_HTMLI(link)
+
         else:
             continue
-
-"""print("="*50, f"form #{i}", "="*50)
-pprint(form_details)
-"""
