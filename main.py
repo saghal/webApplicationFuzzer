@@ -1,3 +1,4 @@
+from typing import Counter
 from bs4 import BeautifulSoup as bs
 from pprint import pprint
 import argparse
@@ -66,9 +67,20 @@ def get_form_details(form):
         method = form.attrs.get("method", "get").lower()
     else:
         method = None
+    inputss = []
     inputs = []
+    tempInput = {}
 
     for input_tag in form.find_all("input"):
+
+        for key in input_tag.attrs:
+            k = key
+            val = input_tag.attrs[key]
+            #print(k," : ",val)
+            tempInput[k] = val
+        
+        inputss.append(tempInput.copy(  ))   
+        tempInput.clear()
         if input_tag.attrs.get("type", "text") is not None:
             input_type = input_tag.attrs.get("type", "text")
         else:
@@ -79,25 +91,39 @@ def get_form_details(form):
         else:
             input_name = None
 
-        if input_tag.attrs.get("value") == None:
+        if input_tag.attrs.get("value") is None:
             inputs.append({"type": input_type, "name": input_name})
         else:
             input_value = input_tag.attrs.get("value")
             inputs.append(
                 {"type": input_type, "name": input_name, "value": input_value})
-
+        
         if input_type == "text":
             loginCheck[0] = True
         elif input_type == "password":
             loginCheck[1] = True
         elif input_type == "submit":
             loginCheck[2] = True
-
     # put everything to the resulting dictionary
+        """    textarea = []
+    tempTextarea = {}
+
+    for textarea_tag in form.find_all("textarea"):
+        for key in textarea_tag.attrs:
+            k = key
+            val = textarea_tag.attrs[key]
+            #print(k, " : ", val)
+            tempTextarea[k] = val
+
+        textarea.append(tempTextarea.copy())
+        tempTextarea.clear()
+        """    
+    #print(textarea)
     details["action"] = action
     details["method"] = method
-    details["inputs"] = inputs
-
+    details["inputs"] = inputss
+    #details["textarea"] = textarea
+#    print("print detailllllllllllls: ",details)
     if loginCheck[0] == True and loginCheck[1] == True and loginCheck[2] == True:
         return details, True
     else:
@@ -109,6 +135,7 @@ internal_urls = set()
 external_urls = set()
 
 total_urls_visited = 0
+
 
 
 def is_valid(url):
@@ -132,7 +159,7 @@ def get_all_website_links(url):
     soup = BeautifulSoup(currSession.get(url).content, "html.parser", from_encoding="iso-8859-1")
     for a_tag in soup.findAll("a"):
         href = a_tag.attrs.get("href")
-        if href == "" or href is None or (href.lower().find('logout') != -1) or (href.lower().find('exit') != -1) or (href.lower().find('signout') != -1):
+        if href == "" or href is None or (href.lower().find('logout') != -1) or (href.lower().find('exit') != -1) or (href.lower().find('signout') != -1) or (href.lower().find('security') != -1) or (href.lower().find('level') != -1):
             # href empty tag
             continue
         # join the URL if it's relative (not absolute link)
@@ -188,17 +215,53 @@ def submit_form(form_details, url, value):
     target_url = urljoin(url, form_details["action"])
     # get the inputs
     inputs = form_details["inputs"]
+    #textareas = form_details["textarea"]
     data = {}
+    #print(inputs)
     for input in inputs:
         # replace all text and search values with `value`
         if input["type"] == "text" or input["type"] == "search":
+            """            if input["maxlength"] is not None:
+                            if int(input["maxlength"]) < len(value) :
+                                input["value"] = int(input["maxlength"]) * "A"
+                        else:
+            """                
             input["value"] = value
-        input_name = input.get("name")
+
+        if input.get("name") is None:
+            input_name = None
+        else:
+            input_name = input.get("name")
+
         input_value = input.get("value")
+        #print(input_name, " : ",input_value)
         if input_name and input_value:
             # if input name and value are not None,
             # then add them to the data of form submission
+            
             data[input_name] = input_value
+    
+        """    for textarea in textareas:
+        print("name of text: : : : : : ", textarea["name"], textarea["maxlength"])
+        if textarea.get("name") is None:
+            textarea_name = None
+        else:
+            textarea_name = textarea.get("name")
+
+        if textarea["maxlength"] is not None:
+            if int(textarea["maxlength"]) < len(value):
+                textarea["value"] = int(textarea["maxlength"]) * "A"
+        else:
+            textarea["value"] = value
+
+        textarea_value = textarea.get("value")
+        print(textarea_name, " : ", textarea_value)
+        if textarea_name and textarea_value:
+            # if input name and value are not None,
+            # then add them to the data of form submission
+
+            data[textarea_name] = textarea_value
+        """
 
     if form_details["method"] == "post":
         return currSession.post(target_url, data=data)
@@ -207,29 +270,54 @@ def submit_form(form_details, url, value):
         return currSession.get(target_url, params=data)
 
 
-def scan_xss(url):
-    """
-    Given a `url`, it prints all XSS vulnerable forms and 
-    returns True if any is vulnerable, False otherwise
-    """
-    # get all the forms from the URL
+def scan_xss(url, level):
     forms = get_all_forms(url)
-    print(f"[+] Detected {len(forms)} forms on {url}.")
-    js_script = "<Script>alert('hi')</scripT>"
-    # returning value
+    print(f"[+] Detected {len(forms)} forms on {url}")
+    detectForm = [False]*len(forms)
+    if level == 1:
+        file1 = open('xss-payload-list-low.txt', 'r')
+        Lines = file1.readlines()
+        file1.close()
+    else:
+        file1 = open('xss-payload-list-high.txt', 'r')
+        Lines = file1.readlines()
+        file1.close()
+
+
     is_vulnerable = False
-    # iterate over all forms
-    for form in forms:
-        form_details, x = get_form_details(form)
-        content = submit_form(form_details, url, js_script).content.decode()
-        #print(content)
-        time.sleep(1)
-        if js_script in content:
-            print(f"[+] XSS Detected on {url}")
-            print(f"[*] Form details:")
-            pprint(form_details)
-            is_vulnerable = True
-            # won't break because we want to print other available vulnerable forms
+    for line in Lines:
+        temp = 0
+        for checkForm in detectForm:
+            if checkForm == True:
+                temp = temp + 1
+        
+        if temp == len(forms):
+            break
+        # iterate over all forms
+        count = 0
+        for form in forms:
+            if detectForm[count] == True:
+                continue
+            form_details, x = get_form_details(form)
+            content = submit_form(form_details, url, line).content.decode()
+            if line in content:
+                detectForm[count] = True
+                print(f"[+] XSS Detected on {url}")
+                print(f"[*] Form details:")
+                pprint(form_details)
+                f = open("report.txt", "a")
+                f.write("#"*100)
+                f.write("\n** XSS ATTACK **\n")
+                f.write("\npath: ")
+                f.write(url)
+                f.write("\n")
+                f.write(str(form_details))
+                f.write("#"*100)
+
+                f.close()
+
+                is_vulnerable = True
+            count = count + 1
     return is_vulnerable
 
 
@@ -262,14 +350,23 @@ if __name__ == "__main__":
     print("[+] Total External links:", len(external_urls))
     print("[+] Total URLs:", len(external_urls) + len(internal_urls))
     print("[+] Total crawled URLs:", 1000)
-
-    for i in internal_urls:
-        #if i == "http://127.0.0.1:8009/vulnerabilities/xss_r/":
-        print(i)
-    print(scan_xss("http://127.0.0.1:8009/vulnerabilities/xss_r"))
-
-
-
+    options = 1
+    while options > 0:
+        print("*"*100, "\n", "*"*99)
+        options = int(input("Choose Attack:\n1.XSS\n2.SQL injection\n3.HTML injection\n0.Exit\n"))
+        if options == 0:
+            break
+        elif options == 1:
+            level = int(input("choose level:\n1.low\n2.high\n"))
+            if level == 1 or level == 2:
+                for link in internal_urls:
+                    scan_xss(link, level)
+            else:
+                print("choose right Level")
+                continue
+        
+        else:
+            continue
 
 """print("="*50, f"form #{i}", "="*50)
 pprint(form_details)
