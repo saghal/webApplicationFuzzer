@@ -17,7 +17,8 @@ GRAY = colorama.Fore.LIGHTBLACK_EX
 RESET = colorama.Fore.RESET
 YELLOW = colorama.Fore.YELLOW
 
-def Login(username, password ,url , form_details):
+
+def Login(username, password, url, form_details):
     target_url = urljoin(url, form_details["action"])
     # get the inputs
     inputs = form_details["inputs"]
@@ -43,6 +44,7 @@ def Login(username, password ,url , form_details):
 
     print("this place: ", result.url)
     return result.url
+
 
 def get_all_forms(url):
     """Given a `url`, it returns all forms from the HTML content"""
@@ -78,8 +80,8 @@ def get_form_details(form):
             val = input_tag.attrs[key]
             #print(k," : ",val)
             tempInput[k] = val
-        
-        inputss.append(tempInput.copy(  ))   
+
+        inputss.append(tempInput.copy())
         tempInput.clear()
         if input_tag.attrs.get("type", "text") is not None:
             input_type = input_tag.attrs.get("type", "text")
@@ -97,7 +99,7 @@ def get_form_details(form):
             input_value = input_tag.attrs.get("value")
             inputs.append(
                 {"type": input_type, "name": input_name, "value": input_value})
-        
+
         if input_type == "text":
             loginCheck[0] = True
         elif input_type == "password":
@@ -117,7 +119,7 @@ def get_form_details(form):
 
         textarea.append(tempTextarea.copy())
         tempTextarea.clear()
-        """    
+        """
     #print(textarea)
     details["action"] = action
     details["method"] = method
@@ -137,16 +139,18 @@ external_urls = set()
 total_urls_visited = 0
 
 
-
 def is_valid(url):
     """
     Checks whether `url` is a valid URL.
     """
     parsed = urlparse(url)
     return bool(parsed.netloc) and bool(parsed.scheme)
+
+
 def is_logout(url):
     parsed = urlparse(url)
     print(parsed)
+
 
 def get_all_website_links(url):
     """
@@ -156,7 +160,8 @@ def get_all_website_links(url):
     urls = set()
     # domain name of the URL without the protocol
     domain_name = urlparse(url).netloc
-    soup = BeautifulSoup(currSession.get(url).content, "html.parser", from_encoding="iso-8859-1")
+    soup = BeautifulSoup(currSession.get(url).content,
+                         "html.parser", from_encoding="iso-8859-1")
     for a_tag in soup.findAll("a"):
         href = a_tag.attrs.get("href")
         if href == "" or href is None or (href.lower().find('logout') != -1) or (href.lower().find('exit') != -1) or (href.lower().find('signout') != -1) or (href.lower().find('security') != -1) or (href.lower().find('level') != -1):
@@ -225,7 +230,7 @@ def submit_form(form_details, url, value):
                             if int(input["maxlength"]) < len(value) :
                                 input["value"] = int(input["maxlength"]) * "A"
                         else:
-            """                
+            """
             input["value"] = value
 
         if input.get("name") is None:
@@ -238,35 +243,12 @@ def submit_form(form_details, url, value):
         if input_name and input_value:
             # if input name and value are not None,
             # then add them to the data of form submission
-            
+
             data[input_name] = input_value
-    
-        """    for textarea in textareas:
-        print("name of text: : : : : : ", textarea["name"], textarea["maxlength"])
-        if textarea.get("name") is None:
-            textarea_name = None
-        else:
-            textarea_name = textarea.get("name")
-
-        if textarea["maxlength"] is not None:
-            if int(textarea["maxlength"]) < len(value):
-                textarea["value"] = int(textarea["maxlength"]) * "A"
-        else:
-            textarea["value"] = value
-
-        textarea_value = textarea.get("value")
-        print(textarea_name, " : ", textarea_value)
-        if textarea_name and textarea_value:
-            # if input name and value are not None,
-            # then add them to the data of form submission
-
-            data[textarea_name] = textarea_value
-        """
 
     if form_details["method"] == "post":
         return currSession.post(target_url, data=data)
     else:
-        # GET request
         return currSession.get(target_url, params=data)
 
 
@@ -283,14 +265,13 @@ def scan_xss(url, level):
         Lines = file1.readlines()
         file1.close()
 
-
     is_vulnerable = False
     for line in Lines:
         temp = 0
         for checkForm in detectForm:
             if checkForm == True:
                 temp = temp + 1
-        
+
         if temp == len(forms):
             break
         # iterate over all forms
@@ -321,6 +302,70 @@ def scan_xss(url, level):
     return is_vulnerable
 
 
+def is_vulnerable(response):
+    """A simple boolean function that determines whether a page 
+    is SQL Injection vulnerable from its `response`"""
+    errors = {
+        # MySQL
+        "you have an error in your sql syntax;",
+        "warning: mysql",
+        # SQL Server
+        "unclosed quotation mark after the character string",
+        # Oracle
+        "quoted string not properly terminated",
+    }
+    for error in errors:
+        # if you find one of these errors, return True
+        if error in response.content.decode().lower():
+            return True
+    # no error detected
+    return False
+
+
+def scan_sql_injection(url):
+    # test on URL
+    for c in "\"'":
+        new_url = f"{url}{c}"
+        res = currSession.get(new_url)
+        if is_vulnerable(res):
+            print("[+] SQL Injection vulnerability detected, link:", new_url)
+            return
+    forms = get_all_forms(url)
+    print(f"[+] Detected {len(forms)} forms on {url}.")
+    for form in forms:
+        form_details, x = get_form_details(form)
+        for c in "\"'":
+            data = {}
+            for input_tag in form_details["inputs"]:
+                if input_tag.get("value") or input_tag["type"] == "hidden":
+                    try:
+                        data[input_tag["name"]] = input_tag["value"] + c
+                    except:
+                        pass
+                elif input_tag["type"] != "submit":
+                    data[input_tag["name"]] = f"test{c}"
+            url = urljoin(url, form_details["action"])
+            if form_details["method"] == "post":
+                res = currSession.post(url, data=data)
+            elif form_details["method"] == "get":
+                res = currSession.get(url, params=data)
+            # test whether the resulting page is vulnerable
+            if is_vulnerable(res):
+                print("[+] SQL Injection vulnerability detected, link:", url)
+                print("[+] Form:")
+                pprint(form_details)
+                f = open("report.txt", "a")
+                f.write("#"*100)
+                f.write("\n** SQL injection **\n")
+                f.write("\npath: ")
+                f.write(url)
+                f.write("\n")
+                f.write(str(form_details))
+                f.write("#"*100)
+
+                f.close()
+
+                break
 
 
 if __name__ == "__main__":
@@ -353,7 +398,8 @@ if __name__ == "__main__":
     options = 1
     while options > 0:
         print("*"*100, "\n", "*"*99)
-        options = int(input("Choose Attack:\n1.XSS\n2.SQL injection\n3.HTML injection\n0.Exit\n"))
+        options = int(
+            input("Choose Attack:\n1.XSS\n2.SQL injection\n3.HTML injection\n0.Exit\n"))
         if options == 0:
             break
         elif options == 1:
@@ -364,7 +410,9 @@ if __name__ == "__main__":
             else:
                 print("choose right Level")
                 continue
-        
+        elif options == 2:
+            for link in internal_urls:
+                scan_sql_injection(link)
         else:
             continue
 
